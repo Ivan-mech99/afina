@@ -21,8 +21,29 @@ public:
 
     ~SimpleLRU() {
         _lru_index.clear();
+		while (_tail != _lru_head.get()) 
+		{
+			_tail = _tail->prev;
+			_tail->next = nullptr;
+		}
         _lru_head.reset(); // TODO: Here is stack overflow
     }
+
+    bool Is_overflow(const std::string &key, const std::string &value);
+
+    bool Is_not_enough(const std::string &key, const std::string &value);
+
+    bool Is_not_enough_for_val(const std::string &value);
+
+    bool Is_in_dict(const std::string &key);
+
+    void delete_node_from_tail();
+
+    void Add_node_to_head(const std::string &key, const std::string &value);
+
+    void move_node_to_head(const std::string &key);
+
+    void update_key(const std::string &key, const std::string &value);
 
     // Implements Afina::Storage interface
     bool Put(const std::string &key, const std::string &value) override;
@@ -44,12 +65,13 @@ private:
     using lru_node = struct lru_node {
         std::string key;
         std::string value;
-        std::unique_ptr<lru_node> prev;
+        lru_node *prev;
         std::unique_ptr<lru_node> next;
     };
 
     // Maximum number of bytes could be stored in this cache.
     // i.e all (keys+values) must be not greater than the _max_size
+    std::size_t _cur_size = 0;
     std::size_t _max_size;
 
     // Main storage of lru_nodes, elements in this list ordered descending by "freshness": in the head
@@ -57,9 +79,11 @@ private:
     //
     // List owns all nodes
     std::unique_ptr<lru_node> _lru_head;
+    // Tail
+    lru_node *_tail;
 
     // Index of nodes from list above, allows fast random access to elements by lru_node#key
-    std::map<std::reference_wrapper<std::string>, std::reference_wrapper<lru_node>, std::less<std::string>> _lru_index;
+    std::map<std::reference_wrapper<const std::string>, std::reference_wrapper<lru_node>, std::less<std::string>> _lru_index;
 };
 
 } // namespace Backend
