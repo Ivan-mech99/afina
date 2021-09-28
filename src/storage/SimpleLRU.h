@@ -16,77 +16,69 @@ namespace Backend {
  * That is NOT thread safe implementaiton!!
  */
 class SimpleLRU : public Afina::Storage {
-public:
-    SimpleLRU(size_t max_size = 1024) : _max_size(max_size) {}
+  void Delete_node_from_tail();
 
-    ~SimpleLRU() {
-        _lru_index.clear();
-		while (_tail != _lru_head.get()) 
-		{
-			_tail = _tail->prev;
-			_tail->next = nullptr;
-		}
-        _lru_head.reset(); // TODO: Here is stack overflow
+  void Add_node_to_head(const std::string &key, const std::string &value);
+
+  bool Move_node_to_head(const std::string &key);
+
+ public:
+  SimpleLRU(size_t max_size = 1024) : _max_size(max_size) {}
+
+  ~SimpleLRU() {
+    _lru_index.clear();
+    while (_tail != _lru_head.get()) {
+      _tail = _tail->prev;
+      _tail->next = nullptr;
     }
+    _lru_head.reset();  // TODO: Here is stack overflow
+  }
 
-    bool Is_overflow(const std::string &key, const std::string &value);
+  // Implements Afina::Storage interface
+  bool Put(const std::string &key, const std::string &value) override;
 
-    bool Is_not_enough(const std::string &key, const std::string &value);
+  // Implements Afina::Storage interface
+  bool PutIfAbsent(const std::string &key, const std::string &value) override;
 
-    bool Is_not_enough_for_val(const std::string &value);
+  // Implements Afina::Storage interface
+  bool Set(const std::string &key, const std::string &value) override;
 
-    bool Is_in_dict(const std::string &key);
+  // Implements Afina::Storage interface
+  bool Delete(const std::string &key) override;
 
-    void delete_node_from_tail();
+  // Implements Afina::Storage interface
+  bool Get(const std::string &key, std::string &value) override;
 
-    void Add_node_to_head(const std::string &key, const std::string &value);
+ private:
+  // LRU cache node
+  using lru_node = struct lru_node {
+    const std::string key;
+    std::string value;
+    lru_node *prev;
+    std::unique_ptr<lru_node> next;
+  };
 
-    void move_node_to_head(const std::string &key);
+  // Maximum number of bytes could be stored in this cache.
+  // i.e all (keys+values) must be not greater than the _max_size
+  std::size_t _cur_size = 0;
+  std::size_t _max_size;
 
-    void update_key(const std::string &key, const std::string &value);
+  // Main storage of lru_nodes, elements in this list ordered descending by
+  // "freshness": in the head
+  // element that wasn't used for longest time.
+  //
+  // List owns all nodes
+  std::unique_ptr<lru_node> _lru_head;
+  // Tail
+  lru_node *_tail;
 
-    // Implements Afina::Storage interface
-    bool Put(const std::string &key, const std::string &value) override;
-
-    // Implements Afina::Storage interface
-    bool PutIfAbsent(const std::string &key, const std::string &value) override;
-
-    // Implements Afina::Storage interface
-    bool Set(const std::string &key, const std::string &value) override;
-
-    // Implements Afina::Storage interface
-    bool Delete(const std::string &key) override;
-
-    // Implements Afina::Storage interface
-    bool Get(const std::string &key, std::string &value) override;
-
-private:
-    // LRU cache node
-    using lru_node = struct lru_node {
-        std::string key;
-        std::string value;
-        lru_node *prev;
-        std::unique_ptr<lru_node> next;
-    };
-
-    // Maximum number of bytes could be stored in this cache.
-    // i.e all (keys+values) must be not greater than the _max_size
-    std::size_t _cur_size = 0;
-    std::size_t _max_size;
-
-    // Main storage of lru_nodes, elements in this list ordered descending by "freshness": in the head
-    // element that wasn't used for longest time.
-    //
-    // List owns all nodes
-    std::unique_ptr<lru_node> _lru_head;
-    // Tail
-    lru_node *_tail;
-
-    // Index of nodes from list above, allows fast random access to elements by lru_node#key
-    std::map<std::reference_wrapper<const std::string>, std::reference_wrapper<lru_node>, std::less<std::string>> _lru_index;
+  // Index of nodes from list above, allows fast random access to elements by
+  // lru_node#key
+  std::map<std::reference_wrapper<const std::string>,
+           std::reference_wrapper<lru_node>, std::less<std::string>> _lru_index;
 };
 
-} // namespace Backend
-} // namespace Afina
+}  // namespace Backend
+}  // namespace Afina
 
-#endif // AFINA_STORAGE_SIMPLE_LRU_H
+#endif  // AFINA_STORAGE_SIMPLE_LRU_H
