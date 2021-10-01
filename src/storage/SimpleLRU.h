@@ -20,7 +20,7 @@ class SimpleLRU : public Afina::Storage {
 
   void Add_node_to_head(const std::string &key, const std::string &value);
 
-  bool Move_node_to_head(const std::string &key);
+  bool Move_node_to_head(const std::string &key, bool er);
 
  public:
   SimpleLRU(size_t max_size = 1024) : _max_size(max_size) {}

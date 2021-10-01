@@ -38,12 +38,15 @@ void SimpleLRU::Add_node_to_head(const std::string &key,
   }
 }
 
-bool SimpleLRU::Move_node_to_head(const std::string &key) {
+bool SimpleLRU::Move_node_to_head(const std::string &key, bool er) {
   auto found = _lru_index.find(key);
   if (found == _lru_index.end()) {
     return false;
   }
-  lru_node *node = &(_lru_index.find(key)->second.get());
+  lru_node *node = &(found->second.get());
+  if(er){
+    _lru_index.erase(found);
+  }
   if (node == _lru_head.get()) {
     return true;
   }
@@ -68,13 +71,13 @@ bool SimpleLRU::Move_node_to_head(const std::string &key) {
 
 // See MapBasedGlobalLockImpl.h
 bool SimpleLRU::Put(const std::string &key, const std::string &value) {
-  size_t sz;
+  int delta;
   if (key.size() + value.size() > _max_size) {
     return false;
   }
-  if (Move_node_to_head(key)) {
-    sz = value.size();
-    while (_max_size - _cur_size < sz) {
+  if (Move_node_to_head(key, false)) {
+    delta = (_lru_head->value).size()- value.size();
+    while (_max_size - _cur_size < delta) {
       Delete_node_from_tail();
     }
     _cur_size -= (_lru_head->value).size();
@@ -114,7 +117,7 @@ bool SimpleLRU::Set(const std::string &key, const std::string &value) {
   if (key.size() + value.size() > _max_size) {
     return false;
   }
-  if (Move_node_to_head(key)) {
+  if (Move_node_to_head(key, false)) {
     size_t sz = value.size();
     while (_max_size - _cur_size < sz) {
       Delete_node_from_tail();
@@ -129,10 +132,9 @@ bool SimpleLRU::Set(const std::string &key, const std::string &value) {
 
 // See MapBasedGlobalLockImpl.h
 bool SimpleLRU::Delete(const std::string &key) {
-  if (!Move_node_to_head(key)) {
+  if (!Move_node_to_head(key, true)) {
     return false;
   }
-  _lru_index.erase(_lru_head->key);
   _cur_size -= (key.size() + (_lru_head->value).size());
   if (_lru_head->next == nullptr) {
     _lru_head.reset();
@@ -146,7 +148,7 @@ bool SimpleLRU::Delete(const std::string &key) {
 
 // See MapBasedGlobalLockImpl.h
 bool SimpleLRU::Get(const std::string &key, std::string &value) {
-  if (Move_node_to_head(key)) {
+  if (Move_node_to_head(key, false)) {
     value = _lru_head->value;
     return true;
   }
