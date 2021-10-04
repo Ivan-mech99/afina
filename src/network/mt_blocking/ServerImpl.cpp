@@ -35,7 +35,7 @@ ServerImpl::~ServerImpl() {}
 
 // See Server.h
 void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
-    num_thr = 4;
+    num_thr = n_workers;
     _logger = pLogging->select("network");
     _logger->info("Start mt_blocking network service");
 
@@ -75,10 +75,7 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
     std::unique_lock<std::mutex> start_lock(socket_mutex);
     running.store(true);
     sockets.insert(_server_socket);
-    start_lock.unlock();
-    running.store(true);
     _thread = std::thread(&ServerImpl::OnRun, this);
-    _thread.detach();
 }
 
 // See Server.h
@@ -92,6 +89,8 @@ void ServerImpl::Stop() {
 
 // See Server.h
 void ServerImpl::Join() {
+    assert(_thread.joinable());
+    _thread.join();
     std::unique_lock<std::mutex> join_lock(socket_mutex);
     while(running||(!sockets.empty())){
         _stop.wait(join_lock);
@@ -99,25 +98,27 @@ void ServerImpl::Join() {
 }
 
 void ServerImpl::onWork(int client_socket) {
-    std::size_t arg_remains;
+    std::size_t arg_remains = 0;
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
         try {
+            int total = 0;
             int readed_bytes = -1;
-            char client_buffer[4096];
-            while ((readed_bytes = read(client_socket, client_buffer, sizeof(client_buffer))) > 0) {
-
+            char client_buffer[4096] = "";
+            while ((readed_bytes = read(client_socket, client_buffer+total, sizeof(client_buffer)-total)) > 0) {
+                total = total + readed_bytes;
                 // Single block of data readed from the socket could trigger inside actions a multiple times,
                 // for example:
                 // - read#0: [<command1 start>]
                 // - read#1: [<command1 end> <argument> <command2> <argument for command 2> <command3> ... ]
-                while (readed_bytes > 0) {
+                
+                while (total > 0) {
                     _logger->debug("Process {} bytes", readed_bytes);
                     // There is no command yet
                     if (!command_to_execute) {
                         std::size_t parsed = 0;
-                        if (parser.Parse(client_buffer, readed_bytes, parsed)) {
+                        if (parser.Parse(client_buffer, total, parsed)) {
                             // There is no command to be launched, continue to parse input stream
                             // Here we are, current chunk finished some command, process it
                             _logger->debug("Found new command: {} in {} bytes", parser.Name(), parsed);
@@ -132,21 +133,21 @@ void ServerImpl::onWork(int client_socket) {
                         if (parsed == 0) {
                             break;
                         } else {
-                            std::memmove(client_buffer, client_buffer + parsed, readed_bytes - parsed);
-                            readed_bytes -= parsed;
+                            std::memmove(client_buffer, client_buffer + parsed, total - parsed);
+                            total -= parsed;
                         }
                     }
 
                     // There is command, but we still wait for argument to arrive...
                     if (command_to_execute && arg_remains > 0) {
-                        _logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
+                        _logger->debug("Fill argument: {} bytes of {}", total, arg_remains);
                         // There is some parsed command, and now we are reading argument
-                        std::size_t to_read = std::min(arg_remains, std::size_t(readed_bytes));
+                        std::size_t to_read = std::min(arg_remains, std::size_t(total));
                         argument_for_command.append(client_buffer, to_read);
 
-                        std::memmove(client_buffer, client_buffer + to_read, readed_bytes - to_read);
+                        std::memmove(client_buffer, client_buffer + to_read, total - to_read);
                         arg_remains -= to_read;
-                        readed_bytes -= to_read;
+                        total -= to_read;
                     }
 
                     // Thre is command & argument - RUN!
@@ -173,7 +174,7 @@ void ServerImpl::onWork(int client_socket) {
                 } // while (readed_bytes)
             }
 
-            if (readed_bytes == 0) {
+            if (total == 0) {
                 _logger->debug("Connection closed");
             } else {
                 throw std::runtime_error(std::string(strerror(errno)));
@@ -255,7 +256,6 @@ void ServerImpl::OnRun() {
     if(!running&&sockets.empty()){
          _stop.notify_all();
     }
-    onrun_lock1.unlock();
     _logger->warn("Network stopped");
 }
 
