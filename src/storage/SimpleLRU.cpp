@@ -71,24 +71,26 @@ bool SimpleLRU::Move_node_to_head(const std::string &key, bool er) {
 
 // See MapBasedGlobalLockImpl.h
 bool SimpleLRU::Put(const std::string &key, const std::string &value) {
-  int delta;
   if (key.size() + value.size() > _max_size) {
     return false;
   }
   if (Move_node_to_head(key, false)) {
-    delta = (_lru_head->value).size()- value.size();
-    while (_max_size - _cur_size < delta) {
+    int delta = (_lru_head->value).size()- value.size();
+    int delta1 = _max_size - _cur_size; 
+    while (delta1 < delta) {
       Delete_node_from_tail();
+      delta1 = _max_size - _cur_size;
     }
     _cur_size -= (_lru_head->value).size();
     _cur_size += value.size();
     _lru_head->value = value;
     return true;
   }
-  size_t ksz = key.size();
-  size_t vsz = value.size();
-  while (_max_size - _cur_size < (ksz + vsz)) {
+  int sm = key.size() + value.size();
+  int dif = _max_size - _cur_size; 
+  while (dif < sm) {
     Delete_node_from_tail();
+    dif = _max_size - _cur_size;
   }
   Add_node_to_head(key, value);
   return true;
@@ -101,10 +103,11 @@ bool SimpleLRU::PutIfAbsent(const std::string &key, const std::string &value) {
   }
   auto found = _lru_index.find(key);
   if (found == _lru_index.end()) {
-    size_t ksz = key.size();
-    size_t vsz = value.size();
-    while (_max_size - _cur_size < (ksz + vsz)) {
+    int sm = key.size() + value.size();
+    int dif = _max_size - _cur_size;
+    while (dif < sm) {
       Delete_node_from_tail();
+      dif = _max_size - _cur_size;
     }
     Add_node_to_head(key, value);
     return true;
@@ -118,9 +121,11 @@ bool SimpleLRU::Set(const std::string &key, const std::string &value) {
     return false;
   }
   if (Move_node_to_head(key, false)) {
-    size_t sz = value.size();
-    while (_max_size - _cur_size < sz) {
+    int sz = value.size();
+    int dif = _max_size - _cur_size;
+    while (dif < sz) {
       Delete_node_from_tail();
+      dif = _max_size - _cur_size;
     }
     _cur_size -= (_lru_head->value).size();
     _cur_size += value.size();
