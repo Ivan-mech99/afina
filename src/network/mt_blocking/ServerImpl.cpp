@@ -236,7 +236,7 @@ void ServerImpl::OnRun() {
         // TODO: Start new thread and process data from/to connection
         {
          std::unique_lock<std::mutex> onrun_lock(socket_mutex);
-         if(sockets.size()<num_thr){
+         if(sockets.size()<num_thr&&running){
              std::thread cur_thr(&ServerImpl::onWork, this, client_socket);
              cur_thr.detach();
              sockets.insert(client_socket); 
