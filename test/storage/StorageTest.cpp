@@ -56,6 +56,20 @@ TEST(StorageTest, PutIfAbsent) {
     EXPECT_TRUE(value == "val1");
 }
 
+TEST(StorageTest, Put_negative_delta) {
+    SimpleLRU storage(20);
+
+    EXPECT_TRUE(storage.Put("KEY11", "val11"));
+
+    EXPECT_TRUE(storage.Put("KEY22", "val22"));
+
+    EXPECT_TRUE(storage.Put("KEY11", "val4"));
+    std::string value;
+    EXPECT_TRUE(storage.Get("KEY11", value)); 
+    EXPECT_TRUE(value == "val4");
+}
+
+
 TEST(StorageTest, PutSetGet) {
     SimpleLRU storage;
 
