@@ -20,7 +20,7 @@
 #include <afina/Storage.h>
 #include <afina/execute/Command.h>
 #include <afina/logging/Service.h>
-
+#include <afina/concurrency/Executor.h>
 #include "protocol/Parser.h"
 
 namespace Afina {
@@ -192,6 +192,9 @@ void ServerImpl::onWork(int client_socket) {
 
 // See Server.h
 void ServerImpl::OnRun() {
+
+    Afina::Concurrency::Executor executor(8);
+    executor.Start();
     // Here is connection state
     // - parser: parse state of the stream
     // - command_to_execute: last command parsed out of stream
@@ -235,7 +238,7 @@ void ServerImpl::OnRun() {
 
         // TODO: Start new thread and process data from/to connection
         {
-         std::unique_lock<std::mutex> onrun_lock(socket_mutex);
+        /* std::unique_lock<std::mutex> onrun_lock(socket_mutex);
          if(sockets.size()<num_thr&&running){
              std::thread cur_thr(&ServerImpl::onWork, this, client_socket);
              cur_thr.detach();
@@ -245,9 +248,16 @@ void ServerImpl::OnRun() {
               close(client_socket);
          }
          onrun_lock.unlock();
+        }*/
+
+        std::unique_lock<std::mutex> onrun_lock(socket_mutex);
+        sockets.insert(client_socket);
+        if (!executor.Execute(&ServerImpl::onWork, this, client_socket)){
+           close(client_socket);
+           sockets.erase(client_socket);
         }
        }
-
+     }
      //Cleanup on exit...
      std::unique_lock<std::mutex> onrun_lock1(socket_mutex);
      sockets.erase(_server_socket);
@@ -256,6 +266,7 @@ void ServerImpl::OnRun() {
     if(!running&&sockets.empty()){
          _stop.notify_all();
     }
+    executor.Stop(true);
     _logger->warn("Network stopped");
 }
 
