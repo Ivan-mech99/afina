@@ -141,7 +141,7 @@ void ServerImpl::OnRun() {
             // That is some connection!
             Connection *pc = static_cast<Connection *>(current_event.data.ptr);
 
-            auto old_mask = pc->_event.events;
+            auto old_mask = pc->event.events;
             if ((current_event.events & EPOLLERR) || (current_event.events & EPOLLHUP)) {
                 pc->OnError();
             } else if (current_event.events & EPOLLRDHUP) {
@@ -158,19 +158,19 @@ void ServerImpl::OnRun() {
 
             // Does it alive?
             if (!pc->isAlive()) {
-                if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->_socket, &pc->_event)) {
+                if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->client_socket, &pc->event)) {
                     _logger->error("Failed to delete connection from epoll");
                 }
 
-                close(pc->_socket);
+                close(pc->client_socket);
                 pc->OnClose();
 
                 delete pc;
-            } else if (pc->_event.events != old_mask) {
-                if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->_socket, &pc->_event)) {
+            } else if (pc->event.events != old_mask) {
+                if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->client_socket, &pc->event)) {
                     _logger->error("Failed to change connection event mask");
 
-                    close(pc->_socket);
+                    close(pc->client_socket);
                     pc->OnClose();
 
                     delete pc;
@@ -207,7 +207,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         }
 
         // Register the new FD to be monitored by epoll.
-        Connection *pc = new(std::nothrow) Connection(infd);
+        Connection *pc = new(std::nothrow) Connection(infd, _logger, pStorage);
         if (pc == nullptr) {
             throw std::runtime_error("Failed to allocate connection");
         }
@@ -215,7 +215,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         // Register connection in worker's epoll
         pc->Start();
         if (pc->isAlive()) {
-            if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->_socket, &pc->_event)) {
+            if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->client_socket, &pc->event)) {
                 pc->OnError();
                 delete pc;
             }
