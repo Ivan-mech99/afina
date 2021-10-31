@@ -9,32 +9,31 @@ namespace STnonblock {
 
 // See Connection.h
 void Connection::Start(){
- event.events |= EPOLLIN;
+ event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR;
  _logger->debug("Connection began. Connected to {} socket", client_socket);
 }
 // See Connection.h
 void Connection::OnError(){
+ flag = false;
  _logger->error("Error happened on {} socket", client_socket);
 }
 // See Connection.h
 void Connection::OnClose(){
- close(client_socket);
+ flag = false;
  _logger->debug("Closing {} socket", client_socket);
 }
 
 // See Connection.h
 void Connection::DoRead(){
  try {
-            int total = 0;
             int readed_bytes = -1;
-            char client_buffer[4096] = "";
-            while ((readed_bytes = read(client_socket, client_buffer+total, sizeof(client_buffer)-total)) > 0) {
+            if ((readed_bytes = read(client_socket, client_buffer+total, sizeof(client_buffer)-total)) > 0) {
                 total = total + readed_bytes;
                 // Single block of data readed from the socket could trigger inside actions a multiple times,
                 // for example:
                 // - read#0: [<command1 start>]
                 // - read#1: [<command1 end> <argument> <command2> <argument for command 2> <command3> ... ]
-                
+
                 while (total > 0) {
                     _logger->debug("Process {} bytes", readed_bytes);
                     // There is no command yet
@@ -81,12 +80,15 @@ void Connection::DoRead(){
                             argument_for_command.resize(argument_for_command.size() - 2);
                         }
                         command_to_execute->Execute(*pStorage, argument_for_command, result);
-
+                        _logger->warn("sending response");
                         // Send response
                         result += "\r\n";
                         _outgoing.emplace_back(std::move(result));
+                        if(_outgoing.size() > queue_lim){
+                           event.events &= ~ EPOLLIN;
+                        }
                         event.events |= EPOLLOUT;
-
+                        _logger->warn("preparing");
                         // Prepare for the next command
                         command_to_execute.reset();
                         argument_for_command.resize(0);
@@ -96,35 +98,60 @@ void Connection::DoRead(){
             }
 
             if (total == 0) {
-                _logger->debug("Connection closed");
-            } else {
+                _logger->debug("Read All");
+                //_logger->debug("Connection closed");
+            } else if (errno!=EAGAIN && errno!=EWOULDBLOCK){
                 throw std::runtime_error(std::string(strerror(errno)));
             }
         } catch (std::runtime_error &ex) {
             _logger->error("Failed to process connection on descriptor {}: {}", client_socket, ex.what());
+            _outgoing.push_back("ERROR\r\n");
+            event.events |= EPOLLOUT;
         }
 }
 
-// See Connection.h
-void Connection::DoWrite(){
-   while(!_outgoing.empty()){
-      auto const &b = _outgoing.front();
-      while(_head_offset < b.size()){
-       int n = write(client_socket, &b[_head_offset], b.size());
-       if(n > 0 && n < b.size()){
-          _head_offset+=n;
-          continue;
-       }
-       else if(n == EWOULDBLOCK){
-          return;
-       }
-      }
-    _head_offset = 0;
-    _outgoing.pop_front();
-   }
- event.events &= ~EPOLLOUT;
+void Connection::DoWrite() {
+    try
+    {
+     iovec prep_data[write_lim] = {};
+     size_t used_space = 0;
+     for (auto it = _outgoing.begin(); it != _outgoing.end() && (used_space<write_lim); it++){
+        if(used_space==0){
+           prep_data[0].iov_base = &((*it)[0]) + _head_offset;
+           prep_data[0].iov_len = it->size() - _head_offset;
+        }
+        else{
+           prep_data[used_space].iov_base = &((*it)[0]);
+           prep_data[used_space].iov_len = it->size();
+        }
+     used_space++;
+     }
+    int written = 0;
+    int ind = 0;
+    if ((written = writev(client_socket, prep_data, used_space)) > 0){
+        while (ind < used_space && written >= prep_data[ind].iov_len) {
+            _outgoing.pop_front();
+            written -= prep_data[ind].iov_len;
+            ind++;
+        }
+        _head_offset = written;
+    } else if (written < 0 && written != EAGAIN) {
+       throw std::runtime_error(std::string(strerror(errno)));
+    }
+    if (_outgoing.empty()) {
+        event.events &= ~EPOLLOUT;
+    }
+    if (_outgoing.size() <= int(0.9*queue_lim)){
+        event.events |= EPOLLIN;
+    }
+   }catch(std::runtime_error &err)
+    {
+     _logger->error("Dowrite error on descriptor {} : {}", client_socket, err.what());
+     flag = false;
+    }
 }
- 
+
 } // namespace STnonblock
 } // namespace Network
 } // namespace Afina
+
