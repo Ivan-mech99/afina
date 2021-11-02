@@ -70,7 +70,7 @@ class SimpleLRU : public Afina::Storage {
   // List owns all nodes
   std::unique_ptr<lru_node> _lru_head;
   // Tail
-  lru_node *_tail;
+  lru_node *_tail=nullptr;
 
   // Index of nodes from list above, allows fast random access to elements by
   // lru_node#key

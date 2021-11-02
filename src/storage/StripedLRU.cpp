@@ -26,9 +26,8 @@ bool StripedLRU::Get(const std::string &key, std::string &value){
 
 StripedLRU::StripedLRU(size_t num_shards, size_t mem_lim){
         num_stripes = num_shards;
-        size_t one_lim = mem_lim / num_stripes;
         for(int i = 0; i < num_stripes; i++){
-                shard.emplace_back(new ThreadSafeSimplLRU(one_lim));
+                shard.emplace_back(new ThreadSafeSimplLRU(mem_lim));
         }
     }
 
