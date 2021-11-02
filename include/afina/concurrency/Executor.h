@@ -76,11 +76,10 @@ class Executor {
         // Prepare "task"
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
         std::unique_lock<std::mutex> lock(mutex);
-        if (state!=State::kRun||(tasks.size()>=max_queue_size&&threads.size()==high_watermark))
+        if (state!=State::kRun||(tasks.size()>=max_queue_size))
            {return false;}
         else if(threads.size()<high_watermark&&threads.size()==worked_threads)
         {threads.emplace_back(std::thread([this] {return perform(this);}));}
-        lock.unlock();
         // Enqueue new task
         tasks.push_back(exec);
         empty_condition.notify_one();
@@ -100,9 +99,9 @@ private:
     friend void perform(Executor *executor) 
     {
         std::unique_lock<std::mutex> lock(executor->mutex);
+        auto start = std::chrono::steady_clock::now();
         while (executor->state == Executor::State::kRun){
             if (executor->tasks.empty()){
-                auto start = std::chrono::steady_clock::now();
                 auto result = executor->empty_condition.wait_until(lock, start + std::chrono::milliseconds(executor->idle_time));
                 if (result == std::cv_status::timeout && executor->threads.size() > executor->low_watermark){
                     break;
@@ -120,6 +119,7 @@ private:
     }
     auto this_thread = std::this_thread::get_id();
     auto it = std::find_if(executor->threads.begin(), executor->threads.end(), [this_thread](std::thread &x){return x.get_id() == this_thread; });
+    it->detach();
     executor->threads.erase(it);
     if (executor->threads.empty()){
         executor->empty_condition.notify_all();
@@ -149,7 +149,7 @@ private:
      * Flag to stop bg threads
      */
     State state = State::kRun;
-    size_t low_watermark;
+    size_t low_watermark = 0;
     size_t high_watermark;
     size_t max_queue_size;
     size_t idle_time;
