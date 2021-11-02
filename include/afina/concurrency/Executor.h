@@ -28,63 +28,61 @@ class Executor {
         // Threadppol is stopped
         kStopped
     };
-   public:
-    void Start()
-    {
-     std::unique_lock<std::mutex> lock(mutex);
-     for (int i = 0; i < low_watermark; i++) {
-        threads.emplace_back(std::thread([this] { return perform(this); }));
-     }
-     state = State::kRun;
-    }
-
-    Executor(int size, size_t min_num = 2, size_t max_num = 6, size_t wait_tm = 3000): max_queue_size(size),
-                                                                                       low_watermark(min_num),
-                                                                                       high_watermark(max_num),
-                                                                                       idle_time(wait_tm) {}
-    ~Executor() {Stop(true);}
-
-    /**
-     * Signal thread pool to stop, it will stop accepting new jobs and close threads just after each become
-     * free. All enqueued jobs will be complete.
-     *
-     * In case if await flag is true, call won't return until all background jobs are done and all threads are stopped
-     */
-    void Stop(bool await = false){
-        std::unique_lock<std::mutex> lock(mutex);
-        state = State::kStopping;
-        empty_condition.notify_all();
-        for (auto &thread : threads) {
-            if (await) {
-                thread.join();
-            }
-        }
-        if (threads.empty())
-        {
-        state = State::kStopped;
-        }  
+public:
+   void Start(){
+      std::unique_lock<std::mutex> lock(mutex);
+      for(int i = 0; i < low_watermark; i++){
+         threads.emplace_back(std::thread([this]{ 
+            return perform(this);}));
+         }
+         state = State::kRun;
       }
 
-    /**
-     * Add function to be executed on the threadpool. Method returns true in case if task has been placed
-     * onto execution queue, i.e scheduled for execution and false otherwise.
-     *
-     * That function doesn't wait for function result. Function could always be written in a way to notify caller about
-     * execution finished by itself
-     */
-    template <typename F, typename... Types> bool Execute(F &&func, Types... args) {
-        // Prepare "task"
-        auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
-        std::unique_lock<std::mutex> lock(mutex);
-        if (state!=State::kRun||(tasks.size()>=max_queue_size))
-           {return false;}
-        else if(threads.size()<high_watermark&&threads.size()==worked_threads)
-        {threads.emplace_back(std::thread([this] {return perform(this);}));}
-        // Enqueue new task
-        tasks.push_back(exec);
-        empty_condition.notify_one();
-        return true;
-    }
+   Executor(int size, size_t min_num = 2, size_t max_num = 6, size_t wait_tm = 3000): max_queue_size(size),
+      low_watermark(min_num), high_watermark(max_num), idle_time(wait_tm) {}
+
+   ~Executor() {Stop(true);}
+
+  /**
+   * Signal thread pool to stop, it will stop accepting new jobs and close threads just after each become
+   * free. All enqueued jobs will be complete.
+   *
+   * In case if await flag is true, call won't return until all background jobs are done and all threads are stopped
+   */
+   void Stop(bool await = false){
+      std::unique_lock<std::mutex> lock(mutex);
+      state = State::kStopping;
+      empty_condition.notify_all();
+      for(auto &thread : threads){
+         if(await){
+            thread.join();
+         }
+      }
+      if(threads.empty()){
+         state = State::kStopped;
+      }  
+   }
+
+  /**
+   * Add function to be executed on the threadpool. Method returns true in case if task has been placed
+   * onto execution queue, i.e scheduled for execution and false otherwise.
+   *
+   * That function doesn't wait for function result. Function could always be written in a way to notify caller about
+   * execution finished by itself
+   */
+   template <typename F, typename... Types> bool Execute(F &&func, Types... args) {
+      // Prepare "task"
+      auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
+      std::unique_lock<std::mutex> lock(mutex);
+      if(state!=State::kRun||(tasks.size()>=max_queue_size)){
+         return false;}
+      else if(threads.size()<high_watermark&&threads.size()==worked_threads){
+         threads.emplace_back(std::thread([this] {return perform(this);}));}
+         // Enqueue new task
+         tasks.push_back(exec);
+         empty_condition.notify_one();
+         return true;
+   }
 
 private:
     // No copy/move/assign allowed
