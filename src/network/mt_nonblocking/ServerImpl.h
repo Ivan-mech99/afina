@@ -3,7 +3,8 @@
 
 #include <thread>
 #include <vector>
-
+#include "Connection.h"
+#include <set>
 #include <afina/network/Server.h>
 
 namespace spdlog {
@@ -35,6 +36,10 @@ public:
     // See Server.h
     void Join() override;
 
+    void EraseConnection(Connection* pconn) {
+        _connections_set.erase(pconn);
+    }
+
 protected:
     void OnRun();
     void OnNewConnection();
@@ -63,6 +68,10 @@ private:
 
     // threads serving read/write requests
     std::vector<Worker> _workers;
+
+    std::mutex m;
+
+    std::set<Connection *> _connections_set;
 };
 
 } // namespace MTnonblock
