@@ -17,14 +17,14 @@ namespace STnonblock {
 
 class Connection {
 public:
-    Connection(int s, std::shared_ptr<spdlog::logger> &logger, std::shared_ptr<Afina::Storage> &pStorage) : client_socket(s),
+    Connection(int s, std::shared_ptr<spdlog::logger> &logger, std::shared_ptr<Afina::Storage> &pStorage) : client_socket_(s),
                                                                                                             _logger{logger},
                                                                                                             pStorage{pStorage}{
-     std::memset(&event, 0, sizeof(struct epoll_event));
-     event.data.ptr = this;
+     std::memset(&event_, 0, sizeof(struct epoll_event));
+     event_.data.ptr = this;
     }
 
-    inline bool isAlive() const { return flag; }
+    inline bool isAlive() const { return flag_; }
 
     void Start();
 
@@ -37,21 +37,22 @@ protected:
 private:
     friend class ServerImpl;
 
-    int client_socket;
-    struct epoll_event event;
-    char client_buffer[4096] = "";
-    int total = 0;
-    size_t _head_offset=0;
-    std::deque<std::string> _outgoing;
+    int client_socket_;
+    struct epoll_event event_;
+    char client_buffer_[4096] = "";
+    int total_ = 0;
+    size_t head_offset_ = 0;
+    std::deque<std::string> outgoing_;
     std::shared_ptr<spdlog::logger> &_logger;
     std::shared_ptr<Afina::Storage> &pStorage;
     Protocol::Parser parser;
     size_t arg_remains = 0;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
-    bool flag=true;
-    int queue_lim=100;
-    int write_lim=50;
+    bool flag_ = true;
+    bool output_only_ = false;
+    int queue_lim_ =100;
+    int write_lim_ =50;
 };
 
 } // namespace STnonblock

@@ -89,8 +89,8 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
-    for(auto elem: _connections_set){
-        shutdown(elem->client_socket, SHUT_WR);
+    for(auto elem: _connections_set) {
+        shutdown(elem->client_socket_, SHUT_WR);
     }
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
@@ -151,7 +151,7 @@ void ServerImpl::OnRun() {
             Connection *pc = static_cast<Connection *>(current_event.data.ptr);
             _connections_set.insert(pc);
             //_logger->warn("connection pc1");
-            auto old_mask = pc->event.events;
+            auto old_mask = pc->event_.events;
             if ((current_event.events & EPOLLERR) || (current_event.events & EPOLLHUP)) {
                 pc->OnError();
             } else if (current_event.events & EPOLLRDHUP) {
@@ -167,28 +167,27 @@ void ServerImpl::OnRun() {
             }
             // Does it alive?
             if (!pc->isAlive()) {
-                if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->client_socket, &pc->event)) {
+                if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->client_socket_, &pc->event_)) {
                     _logger->error("Failed to delete connection from epoll");
                 }
                 _connections_set.erase(pc);
                 pc->OnClose();
-                close(pc->client_socket);
+                close(pc->client_socket_);
                 delete pc;
-            } else if (pc->event.events != old_mask) {
-                if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->client_socket, &pc->event)) {
+            } else if (pc->event_.events != old_mask) {
+                if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->client_socket_, &pc->event_)) {
                     _logger->error("Failed to change connection event mask");
-
                     _connections_set.erase(pc);
                     pc->OnClose();
-                    close(pc->client_socket);
+                    close(pc->client_socket_);
                     delete pc;
                 }
             }
         }
     }
-    for (auto single_connection : _connections_set){
+    for (auto single_connection : _connections_set) {
         single_connection->OnClose();
-        close(single_connection->client_socket);
+        close(single_connection->client_socket_);
         delete single_connection;
     }
     _connections_set.clear();
@@ -229,7 +228,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         // Register connection in worker's epoll
         pc->Start();
         if (pc->isAlive()) {
-            if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->client_socket, &pc->event)) {
+            if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->client_socket_, &pc->event_)) {
                 pc->OnError();
                 delete pc;
             }
