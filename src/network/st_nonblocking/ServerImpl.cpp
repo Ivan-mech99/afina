@@ -32,7 +32,10 @@ namespace STnonblock {
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl) : Server(ps, pl) {}
 
 // See Server.h
-ServerImpl::~ServerImpl() {}
+ServerImpl::~ServerImpl() {
+    Stop();
+    Join();
+}
 
 // See Server.h
 void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) {
@@ -86,17 +89,23 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 // See Server.h
 void ServerImpl::Stop() {
     _logger->warn("Stop network service");
-
+    for(auto elem: _connections_set) {
+        shutdown(elem->client_socket_, SHUT_WR);
+    }
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
     }
+    close(_server_socket);
 }
 
 // See Server.h
 void ServerImpl::Join() {
     // Wait for work to be complete
-    _work_thread.join();
+    _logger -> warn("Start joining");
+    if(_work_thread.joinable())
+      {_work_thread.join();}
+    _logger-> warn("Ended joining");
 }
 
 // See ServerImpl.h
@@ -140,8 +149,9 @@ void ServerImpl::OnRun() {
 
             // That is some connection!
             Connection *pc = static_cast<Connection *>(current_event.data.ptr);
-
-            auto old_mask = pc->_event.events;
+            _connections_set.insert(pc);
+            //_logger->warn("connection pc1");
+            auto old_mask = pc->event_.events;
             if ((current_event.events & EPOLLERR) || (current_event.events & EPOLLHUP)) {
                 pc->OnError();
             } else if (current_event.events & EPOLLRDHUP) {
@@ -155,29 +165,32 @@ void ServerImpl::OnRun() {
                     pc->DoWrite();
                 }
             }
-
             // Does it alive?
             if (!pc->isAlive()) {
-                if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->_socket, &pc->_event)) {
+                if (epoll_ctl(epoll_descr, EPOLL_CTL_DEL, pc->client_socket_, &pc->event_)) {
                     _logger->error("Failed to delete connection from epoll");
                 }
-
-                close(pc->_socket);
+                _connections_set.erase(pc);
                 pc->OnClose();
-
+                close(pc->client_socket_);
                 delete pc;
-            } else if (pc->_event.events != old_mask) {
-                if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->_socket, &pc->_event)) {
+            } else if (pc->event_.events != old_mask) {
+                if (epoll_ctl(epoll_descr, EPOLL_CTL_MOD, pc->client_socket_, &pc->event_)) {
                     _logger->error("Failed to change connection event mask");
-
-                    close(pc->_socket);
+                    _connections_set.erase(pc);
                     pc->OnClose();
-
+                    close(pc->client_socket_);
                     delete pc;
                 }
             }
         }
     }
+    for (auto single_connection : _connections_set) {
+        single_connection->OnClose();
+        close(single_connection->client_socket_);
+        delete single_connection;
+    }
+    _connections_set.clear();
     _logger->warn("Acceptor stopped");
 }
 
@@ -187,7 +200,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         socklen_t in_len;
 
         // No need to make these sockets non blocking since accept4() takes care of it.
-        in_len = sizeof in_addr;
+        in_len = sizeof(in_addr);
         int infd = accept4(_server_socket, &in_addr, &in_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if (infd == -1) {
             if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
@@ -207,7 +220,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         }
 
         // Register the new FD to be monitored by epoll.
-        Connection *pc = new(std::nothrow) Connection(infd);
+        Connection *pc = new(std::nothrow) Connection(infd, _logger, pStorage);
         if (pc == nullptr) {
             throw std::runtime_error("Failed to allocate connection");
         }
@@ -215,7 +228,7 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         // Register connection in worker's epoll
         pc->Start();
         if (pc->isAlive()) {
-            if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->_socket, &pc->_event)) {
+            if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->client_socket_, &pc->event_)) {
                 pc->OnError();
                 delete pc;
             }
