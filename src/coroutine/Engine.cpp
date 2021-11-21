@@ -7,6 +7,25 @@
 namespace Afina {
 namespace Coroutine {
 
+Engine::~Engine() {
+   if (StackBottom) {
+      delete[] std::get<0>(idle_ctx->Stack);
+      delete idle_ctx;
+   }
+   while (alive) {
+      context *ctx = alive;
+      delete[] std::get<0>(alive->Stack);
+      delete ctx;
+      alive = alive->next;
+   }
+   while (blocked) {
+      context *ctx = blocked;
+      delete[] std::get<0>(blocked->Stack);
+      delete ctx;
+      blocked = blocked->next;
+   }
+}
+
 void Engine::Store(context &ctx) {
    char cur_addr;
    if(&cur_addr > ctx.Low) {
