@@ -72,8 +72,6 @@ private:
 
     ServerImpl* _server;
 
-    std::mutex _mutex;
-
     // afina services
     std::shared_ptr<Afina::Logging::Service> _pLogging;
 

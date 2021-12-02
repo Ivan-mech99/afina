@@ -68,6 +68,8 @@ private:
 
     // threads serving read/write requests
     std::vector<Worker> _workers;
+    
+    friend class Worker;
 
     std::mutex m;
 
