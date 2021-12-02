@@ -33,7 +33,10 @@ namespace MTnonblock {
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl) : Server(ps, pl) {}
 
 // See Server.h
-ServerImpl::~ServerImpl() {}
+ServerImpl::~ServerImpl(){
+   Stop();
+   Join();
+}
 
 // See Server.h
 void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) {
@@ -96,7 +99,7 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 
     _workers.reserve(n_workers);
     for (int i = 0; i < n_workers; i++) {
-        _workers.emplace_back(pStorage, pLogging);
+        _workers.emplace_back(pStorage, pLogging, this);
         _workers.back().Start(_data_epoll_fd);
     }
 
@@ -119,6 +122,11 @@ void ServerImpl::Stop() {
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
     }
+    std::unique_lock<std::mutex> lock(m);
+    for (auto elem: _connections_set) {
+       shutdown(elem->_socket, SHUT_RD);
+    }
+    shutdown(_server_socket, SHUT_RDWR);
 }
 
 // See Server.h
@@ -126,10 +134,19 @@ void ServerImpl::Join() {
     for (auto &t : _acceptors) {
         t.join();
     }
-
+    _acceptors.clear();
     for (auto &w : _workers) {
         w.Join();
     }
+    _workers.clear();
+    std::unique_lock<std::mutex> lock(m);
+    for(auto elem : _connections_set){
+       elem->OnClose();
+       close(elem->_socket);
+       delete elem;
+    }
+    _connections_set.clear();
+    close(_server_socket);
 }
 
 // See ServerImpl.h
@@ -193,7 +210,7 @@ void ServerImpl::OnRun() {
                 }
 
                 // Register the new FD to be monitored by epoll.
-                Connection *pc = new Connection(infd);
+                Connection *pc = new Connection(infd,  _logger, pStorage);
                 if (pc == nullptr) {
                     throw std::runtime_error("Failed to allocate connection");
                 }
@@ -208,7 +225,10 @@ void ServerImpl::OnRun() {
                         pc->OnError();
                         delete pc;
                     }
-                }
+                }else{
+                    std::unique_lock<std::mutex> lock(m);
+                    _connections_set.emplace(pc);
+                 }
             }
         }
     }
