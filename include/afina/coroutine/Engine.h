@@ -18,9 +18,7 @@ namespace Coroutine {
  */
 class Engine final {
 public:
-    using unblocker_func = std::function<void(Engine &)>;
-
-private:
+    using unblocker_func = std::function<void()>;
     /**
      * A single coroutine instance which could be scheduled for execution
      * should be allocated on heap
@@ -39,11 +37,14 @@ private:
         // Saved coroutine context (registers)
         jmp_buf Environment;
 
+        bool _is_blocked = false;
+
         // To include routine in the different lists, such as "alive", "blocked", e.t.c
         struct context *prev = nullptr;
         struct context *next = nullptr;
     } context;
 
+public:
     /**
      * Where coroutines stack begins
      */
@@ -85,13 +86,25 @@ protected:
      */
     void Restore(context &ctx);
 
-    static void null_unblocker(Engine &) {}
+    static void null_unblocker() {}
 
 public:
     Engine(unblocker_func unblocker = null_unblocker)
-        : StackBottom(0), cur_routine(nullptr), alive(nullptr), _unblocker(unblocker) {}
+        : StackBottom(0), cur_routine(nullptr), alive(nullptr), 
+          _unblocker(std::move(unblocker)), blocked(nullptr), idle_ctx(nullptr) {}
     Engine(Engine &&) = delete;
     Engine(const Engine &) = delete;
+    ~Engine();
+
+    context *get_cur_routine() {
+        return cur_routine;
+    }
+    
+    void unblock_all() {
+        for (auto coro = blocked; coro != nullptr; coro = blocked) {
+            unblock(coro);
+        }
+    }
 
     /**
      * Gives up current routine execution and let engine to schedule other one. It is not defined when
@@ -144,9 +157,12 @@ public:
         void *pc = run(main, std::forward<Ta>(args)...);
 
         idle_ctx = new context();
+        idle_ctx->Hight = &StackStartsHere;
+        idle_ctx->Low = &StackStartsHere;
+        cur_routine = idle_ctx;
         if (setjmp(idle_ctx->Environment) > 0) {
             if (alive == nullptr) {
-                _unblocker(*this);
+                _unblocker();
             }
 
             // Here: correct finish of the coroutine section
@@ -157,6 +173,7 @@ public:
         }
 
         // Shutdown runtime
+        delete[] std::get<0>(idle_ctx->Stack);
         delete idle_ctx;
         this->StackBottom = 0;
     }
@@ -166,6 +183,11 @@ public:
      * errors function returns -1
      */
     template <typename... Ta> void *run(void (*func)(Ta...), Ta &&... args) {
+        char cur_addr;
+        return run_helper(&cur_addr, func, std::forward<Ta>(args)...);
+    }
+
+    template <typename... Ta> void *run_helper(char *cur_addr, void (*func)(Ta...), Ta &&... args) {
         if (this->StackBottom == 0) {
             // Engine wasn't initialized yet
             return nullptr;
@@ -173,6 +195,8 @@ public:
 
         // New coroutine context that carries around all information enough to call function
         context *pc = new context();
+        pc->Hight = cur_addr;
+        pc->Low = cur_addr;
 
         // Store current state right here, i.e just before enter new coroutine, later, once it gets scheduled
         // execution starts here. Note that we have to acquire stack of the current function call to ensure
