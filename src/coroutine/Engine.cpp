@@ -107,12 +107,10 @@ void Engine::block(void *coro) {
       blocked->next->prev = blocked_coro;
    }
    if (blocked_coro == cur_routine) {
-      if (cur_routine != idle_ctx) {
-         if (setjmp(cur_routine->Environment) > 0) {
-            return;
-         }
-         Store(*cur_routine);
+      if (setjmp(cur_routine->Environment) > 0) {
+         return;
       }
+      Store(*cur_routine);
       Restore(*idle_ctx);
    }
 }

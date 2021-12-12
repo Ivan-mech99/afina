@@ -101,9 +101,14 @@ void Connection::OnWork() {
 
                         _event.events |= EPOLLOUT;
                         _engine->block();
-
-                        if (send(_socket, result.data(), result.size(), 0) <= 0) {
-                            throw std::runtime_error("Failed to send response");
+                        
+                        int sending = send(_socket, result.data(), result.size(), 0);
+                        if (sending == 0 || errno == EAGAIN || errno == EWOULDBLOCK) {
+                           _logger->debug("Connection closed");
+                           _flag = false;
+                        }
+                        else if (sending < 0) {
+                           throw std::runtime_error(std::string(strerror(errno)));
                         }
 
                         // Prepare for the next command
@@ -116,7 +121,7 @@ void Connection::OnWork() {
                 } // while (readed_bytes)
             }
 
-            if (total == 0) {
+            if (total == 0 || errno == EAGAIN || errno == EWOULDBLOCK) {
                 _logger->debug("Connection closed");
                 _flag = false;
             } else {
